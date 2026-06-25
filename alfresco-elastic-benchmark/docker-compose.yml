@@ -1,9 +1,27 @@
 version: '3.8'
 
+# ============================================================================
+# POC READY-TO-DEMO — Alfresco Community -> Elasticsearch 8.13.4
+#
+# /!\ xpack.security.enabled=false : volontaire pour simplifier la démo
+#     (sinon ES 8.x exige HTTPS + comptes/mots de passe dès le démarrage).
+#     NE JAMAIS faire ça en production.
+#
+# Remplace les connecteurs Enterprise propriétaires
+# (quay.io/alfresco/alfresco-elasticsearch-live-indexing-*, licence requise)
+# par "event-bridge", un microservice maison qui consomme les vrais
+# événements ActiveMQ émis par Alfresco Community et indexe réellement
+# dans Elasticsearch.
+#
+# Lancement :
+#   sudo docker compose up -d --build
+#   ./scripts/verify-demo.sh        (après ~2-3 min, le temps que tout démarre)
+# ============================================================================
+
 services:
-  # -------------------------------------------------------------------------
-  # COUCHE INFRASTRUCTURE & STOCKAGE
-  # -------------------------------------------------------------------------
+  # --------------------------------------------------------------------
+  # Base de données PostgreSQL transactionnelle d'Alfresco
+  # --------------------------------------------------------------------
   postgres:
     image: postgres:14.4
     environment:
@@ -20,26 +38,40 @@ services:
       timeout: 5s
       retries: 5
 
+  # --------------------------------------------------------------------
+  # Message Broker (Apache ActiveMQ Artemis) — STOMP activé par défaut
+  # sur le port 61613, requis par event-bridge.
+  # --------------------------------------------------------------------
   activemq:
     image: apache/activemq-artemis:2.23.0-alpine
     environment:
       ARTEMIS_USER: admin
       ARTEMIS_PASSWORD: admin_password
     ports:
-      - "61616:61616" 
-      - "8161:8161"   
+      - "61616:61616"   # OpenWire / Core (utilisé par Alfresco Repository)
+      - "61613:61613"   # STOMP (utilisé par event-bridge)
+      - "8161:8161"     # Console Web admin
     healthcheck:
       test: ["CMD-SHELL", "nc -z localhost 61616 || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 5
 
+  # --------------------------------------------------------------------
+  # Elasticsearch 8.13.4 — nœud unique, sécurité désactivée pour la démo
+  # --------------------------------------------------------------------
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.10
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
     environment:
       - discovery.type=single-node
       - bootstrap.memory_lock=true
       - "ES_JAVA_OPTS=-Xms2g -Xmx2g"
+      # Démo uniquement : désactive l'authentification + le TLS HTTP/transport
+      # (activés par défaut depuis Elasticsearch 8.x)
+      - xpack.security.enabled=false
+      - xpack.security.http.ssl.enabled=false
+      - xpack.security.transport.ssl.enabled=false
+      - xpack.license.self_generated.type=basic
     ulimits:
       memlock:
         soft: -1
@@ -48,25 +80,39 @@ services:
       - "9200:9200"
     healthcheck:
       test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -q '\"status\":\"green\"\\|\"status\":\"yellow\"'"]
-      interval: 5s
+      interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 20
 
+  # --------------------------------------------------------------------
+  # Kibana 8.13.4 (version alignée sur Elasticsearch)
+  # --------------------------------------------------------------------
   kibana:
-    image: docker.elastic.co/kibana/kibana:7.17.10
+    image: docker.elastic.co/kibana/kibana:8.13.4
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - XPACK_SECURITY_ENABLED=false
     ports:
       - "5601:5601"
     depends_on:
       elasticsearch:
         condition: service_healthy
 
-  # -------------------------------------------------------------------------
-  # COUCHE CORE ALFRESCO ECM & PIPELINES
-  # -------------------------------------------------------------------------
+  # --------------------------------------------------------------------
+  # Repository Core Alfresco Community — repo.event2 ACTIVÉ explicitement
+  # (désactivé par défaut sur cette édition).
+  # --------------------------------------------------------------------
   alfresco:
     image: alfresco/alfresco-content-repository:7.4.0
     environment:
-      - JAVA_OPTS=-Ddb.driver=org.postgresql.Driver -Ddb.username=alfresco -Ddb.password=password -Ddb.url=jdbc:postgresql://postgres:5432/alfresco -Dmessaging.subsystem.autoStart=true -Devents.subsystem.autoStart=true -Dmessaging.broker.url=failover:(tcp://activemq:61616)
+      - JAVA_OPTS=
+          -Ddb.driver=org.postgresql.Driver
+          -Ddb.username=alfresco
+          -Ddb.password=password
+          -Ddb.url=jdbc:postgresql://postgres:5432/alfresco
+          -Dmessaging.subsystem.autoStart=true
+          -Dmessaging.broker.url=failover:(tcp://activemq:61616)
+          -Drepo.event2.enabled=true
     ports:
       - "8080:8080"
     depends_on:
@@ -78,61 +124,93 @@ services:
       test: ["CMD-SHELL", "curl -s -u admin:admin http://localhost:8080/alfresco/api/-default-/public/alfresco/versions/1/probes/-ready- | grep -q '\"status\":\"Green\"' || exit 1"]
       interval: 10s
       timeout: 10s
-      retries: 10
+      retries: 20
 
+  # --------------------------------------------------------------------
+  # Service d'extraction de contenu (Apache Tika, image Community publique)
+  # --------------------------------------------------------------------
   transform-service:
     image: alfresco/alfresco-transform-core-aio:3.0.0
     ports:
       - "8090:8090"
 
-  # -------------------------------------------------------------------------
-  # WORKERS DE INDEXATION SÉPARÉS (CONECTEURS)
-  # -------------------------------------------------------------------------
-  elasticsearch-connector-metadata:
-    image: alfresco/alfresco-elasticsearch-connector:3.0.0
+  # --------------------------------------------------------------------
+  # event-bridge — remplace le connecteur Enterprise "metadata"
+  # --------------------------------------------------------------------
+  event-bridge-metadata:
+    build: ./event-bridge
     environment:
-      - ALFRESCO_ACTIVEMQ_URL=tcp://activemq:61616
-      - ALFRESCO_ELASTICSEARCH_HOST=elasticsearch
-      - ALFRESCO_ELASTICSEARCH_PORT=9200
-      - SPRING_PROFILES_ACTIVE=metadata
+      - ACTIVEMQ_HOST=activemq
+      - ACTIVEMQ_STOMP_PORT=61613
+      - ACTIVEMQ_USER=admin
+      - ACTIVEMQ_PASSWORD=admin_password
+      - ALFRESCO_BASE_URL=http://alfresco:8080/alfresco
+      - ELASTICSEARCH_HOST=elasticsearch
+      - ELASTICSEARCH_PORT=9200
+      - ELASTICSEARCH_INDEX=alfresco
+      - BRIDGE_PROFILES=metadata
     depends_on:
       activemq:
         condition: service_healthy
       elasticsearch:
         condition: service_healthy
+      alfresco:
+        condition: service_healthy
 
-  elasticsearch-connector-content:
-    image: alfresco/alfresco-elasticsearch-connector:3.0.0
+  # --------------------------------------------------------------------
+  # event-bridge — remplace le connecteur Enterprise "content"
+  # Composant à multiplier (scale-up) pour absorber le volume de données
+  # --------------------------------------------------------------------
+  event-bridge-content:
+    build: ./event-bridge
     environment:
-      - ALFRESCO_ACTIVEMQ_URL=tcp://activemq:61616
-      - ALFRESCO_ELASTICSEARCH_HOST=elasticsearch
-      - ALFRESCO_ELASTICSEARCH_PORT=9200
+      - ACTIVEMQ_HOST=activemq
+      - ACTIVEMQ_STOMP_PORT=61613
+      - ACTIVEMQ_USER=admin
+      - ACTIVEMQ_PASSWORD=admin_password
+      - ALFRESCO_BASE_URL=http://alfresco:8080/alfresco
       - ALFRESCO_TRANSFORM_URL=http://transform-service:8090
-      - SPRING_PROFILES_ACTIVE=content
+      - ELASTICSEARCH_HOST=elasticsearch
+      - ELASTICSEARCH_PORT=9200
+      - ELASTICSEARCH_INDEX=alfresco
+      - BRIDGE_PROFILES=content
     depends_on:
       activemq:
         condition: service_healthy
       elasticsearch:
         condition: service_healthy
+      alfresco:
+        condition: service_healthy
 
-  elasticsearch-connector-path:
-    image: alfresco/alfresco-elasticsearch-connector:3.0.0
+  # --------------------------------------------------------------------
+  # event-bridge — remplace le connecteur Enterprise "path"
+  # /!\ Règle d'or héritée du dossier d'architecture : une seule instance
+  # active pour éviter les VersionConflictEngineException sur ES.
+  # --------------------------------------------------------------------
+  event-bridge-path:
+    build: ./event-bridge
     environment:
-      - ALFRESCO_ACTIVEMQ_URL=tcp://activemq:61616
-      - ALFRESCO_ELASTICSEARCH_HOST=elasticsearch
-      - ALFRESCO_ELASTICSEARCH_PORT=9200
-      - SPRING_PROFILES_ACTIVE=path
+      - ACTIVEMQ_HOST=activemq
+      - ACTIVEMQ_STOMP_PORT=61613
+      - ACTIVEMQ_USER=admin
+      - ACTIVEMQ_PASSWORD=admin_password
+      - ELASTICSEARCH_HOST=elasticsearch
+      - ELASTICSEARCH_PORT=9200
+      - ELASTICSEARCH_INDEX=alfresco
+      - BRIDGE_PROFILES=path
     deploy:
-      replicas: 1 # /!\ Règle d'or : Doit rester à 1 pour éviter les conflits de hiérarchie
+      replicas: 1
     depends_on:
       activemq:
         condition: service_healthy
       elasticsearch:
         condition: service_healthy
+      alfresco:
+        condition: service_healthy
 
-  # -------------------------------------------------------------------------
-  # AUTOMATION ET BENCHMARK COUCHE
-  # -------------------------------------------------------------------------
+  # --------------------------------------------------------------------
+  # Injecteur automatisé de documents de démo
+  # --------------------------------------------------------------------
   dataset-injector:
     image: curlimages/curl:7.85.0
     entrypoint: ["/bin/sh", "/scripts/dataset-injector.sh"]
@@ -141,28 +219,6 @@ services:
     depends_on:
       alfresco:
         condition: service_healthy
-
-  alfresco-reindexing-job:
-    image: alfresco/alfresco-elasticsearch-reindexing:3.0.0
-    environment:
-      - ALFRESCO_ACTIVEMQ_URL=tcp://activemq:61616
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/alfresco
-      - SPRING_DATASOURCE_USERNAME=alfresco
-      - SPRING_DATASOURCE_PASSWORD=password
-      - SPRING_DATASOURCE_DRIVER_CLASS_NAME=org.postgresql.Driver
-      - ALFRESCO_REINDEX_PAGESIZE=100
-      - ALFRESCO_REINDEX_BATCHSIZE=50
-    command: >
-      --alfresco.reindex.jobName=reindexByIds
-      --alfresco.reindex.fromId=0
-      --alfresco.reindex.toId=100000
-    depends_on:
-      postgres:
-        condition: service_healthy
-      activemq:
-        condition: service_healthy
-      dataset-injector:
-        condition: service_completed_successfully
 
 volumes:
   postgres-data:

@@ -1,9 +1,55 @@
-Dossier d'Architecture de Migration et de Validation de Performance : Alfresco Solr vers Elasticsearch (6 To+)Ce document constitue la spécification technique officielle de référence pour le projet de migration du moteur de recherche d'Alfresco Content Services (ACS) depuis Solr (Search Services) vers Elasticsearch (Search Enterprise).Il intègre l'analyse d'impact d'ingestion à grande échelle, les diagrammes d'architecture, la configuration d'orchestration de test et le plan de capacity planning de production.1. Executive Summary & Défi des 6 ToLa migration d'un système d'archivage documentaire Alfresco de 6 To (représentant plusieurs millions de nœuds documentaires) vers un nouveau moteur d'indexation ne peut s'effectuer par un simple transfert de fichiers. Elle impose de reconstruire intégralement l'index de recherche à partir des données sources.Les contraintes critiques d'un tel projet sont les suivantes :Saturation CPU par l'extraction textuelle : L'analyse des types de fichiers (PDF, Word, Images, etc.) via Apache Tika consomme d'importantes ressources de calcul. Sur 6 To, le temps d'exécution peut s'étendre sur plusieurs semaines si la charge n'est pas distribuée.Impact sur la production (Bases de données / API) : La phase de réindexation historique ne doit pas altérer les temps de réponse de la plateforme Alfresco utilisée au quotidien par les collaborateurs.Pression d'écriture sur Elasticsearch : Le cluster cible doit être configuré pour absorber un flux continu d'indexation massive sans subir de pannes mémoire (Out Of Memory).2. Révolution Architecturale : Du Modèle "Pull" au Modèle "Push"L'architecture moderne d'Alfresco Search Enterprise rompt radicalement avec le couplage historique entre le Repository et Solr.MODÈLE HISTORIQUE "PULL" (SOLR) :
-[ Alfresco Repository ] <====== (Requêtes HTTP Polling régulières) ====== [ Solr Search Services ]
+# Dossier d'Architecture de Migration et de Validation de Performance : Alfresco Solr vers Elasticsearch (6 To+)
 
-MODÈLE MODERNE "PUSH" (ELASTICSEARCH) :
+Ce document constitue la spécification technique officielle de référence pour le projet de migration du moteur de recherche d'Alfresco Content Services (ACS) depuis Solr (Search Services) vers Elasticsearch (Search Enterprise).  
+Il intègre l'analyse d'impact d'ingestion à grande échelle, les diagrammes d'architecture, la configuration d'orchestration de test et le plan de capacity planning de production.
+
+---
+
+## 1. Executive Summary & Défi des 6 To
+
+La migration d'un système d'archivage documentaire Alfresco de 6 To (représentant plusieurs millions de nœuds documentaires) vers un nouveau moteur d'indexation ne peut s'effectuer par un simple transfert de fichiers. Elle impose de reconstruire intégralement l'index de recherche à partir des données sources.
+
+Les contraintes critiques d'un tel projet sont les suivantes :
+
+- **Saturation CPU par l'extraction textuelle :** L'analyse des types de fichiers (PDF, Word, Images, etc.) via Apache Tika consomme d'importantes ressources de calcul. Sur 6 To, le temps d'exécution peut s'étendre sur plusieurs semaines si la charge n'est pas distribuée.
+- **Impact sur la production (Bases de données / API) :** La phase de réindexation historique ne doit pas altérer les temps de réponse de la plateforme Alfresco utilisée au quotidien par les collaborateurs.
+- **Pression d'écriture sur Elasticsearch :** Le cluster cible doit être configuré pour absorber un flux continu d'indexation massive sans subir de pannes mémoire (Out Of Memory).
+
+---
+
+## 2. Révolution Architecturale : Du Modèle "Pull" au Modèle "Push"
+
+L'architecture moderne d'Alfresco Search Enterprise rompt radicalement avec le couplage historique entre le Repository et Solr.
+
+**MODÈLE HISTORIQUE "PULL" (SOLR) :**
+
+```
+[ Alfresco Repository ] <====== (Requêtes HTTP Polling régulières) ====== [ Solr Search Services ]
+```
+
+**MODÈLE MODERNE "PUSH" (ELASTICSEARCH) :**
+
+```
 [ Alfresco Repository ] ──(Événements asynchrones)──> [ ActiveMQ ] ──► [ Connecteurs ] ──► [ Elasticsearch ]
-Matrice comparative des deux modèlesCaractéristiqueAncienne Architecture (Solr / Search Services)Nouvelle Architecture (Elasticsearch / Search Enterprise)Mécanisme de capturePull (Solr interroge régulièrement l'API d'ACS)Push (ACS émet des messages d'événements à chaque transaction)Gestion de la chargeSynchrone / Fortement coupléeAsynchrone / Découplée via un courtier de messages (Message Broker)Goulot d'étranglementLimité par les capacités de calcul du serveur Solr uniqueAucun (Scalabilité horizontale linéaire des connecteurs de calcul)Format intermédiaireIndexation propriétaire LuceneDocuments structurés JSON standardisés de type document-store3. Schéma de l'Architecture Cible (Modèle Événementiel)Le diagramme ci-dessous présente l'infrastructure cible découplée et la répartition des flux asynchrones :flowchart TD
+```
+
+### Matrice comparative des deux modèles
+
+| Caractéristique | Ancienne Architecture (Solr / Search Services) | Nouvelle Architecture (Elasticsearch / Search Enterprise) |
+| :--- | :--- | :--- |
+| **Mécanisme de capture** | Pull (Solr interroge régulièrement l'API d'ACS) | Push (ACS émet des messages d'événements à chaque transaction) |
+| **Gestion de la charge** | Synchrone / Fortement couplée | Asynchrone / Découplée via un courtier de messages (Message Broker) |
+| **Goulot d'étranglement** | Limité par les capacités de calcul du serveur Solr unique | Aucun (Scalabilité horizontale linéaire des connecteurs de calcul) |
+| **Format intermédiaire** | Indexation propriétaire Lucene | Documents structurés JSON standardisés de type `document-store` |
+
+---
+
+## 3. Schéma de l'Architecture Cible (Modèle Événementiel)
+
+Le diagramme ci-dessous présente l'infrastructure cible découplée et la répartition des flux asynchrones :
+
+```mermaid
+flowchart TD
     subgraph AL_REP [Zone Alfresco Core]
         ACS[Alfresco Content Repository]
         DB[(PostgreSQL / Oracle)]
@@ -56,7 +102,39 @@ Matrice comparative des deux modèlesCaractéristiqueAncienne Architecture (Solr
     CONN_PATH -->|3c. Bulk API JSON| ES_CLUSTER
 
     ES_CLUSTER <--> KIB
-4. Rôles et Spécifications des Connecteurs d'IndexationPour assurer une scalabilité maximale, l'application Alfresco Elasticsearch Connector segmente ses responsabilités d'ingestion à travers trois profils distincts :A. Connecteur de Métadonnées (Profil metadata)Mission : Traiter les aspects, types et permissions d'accès.Comportement : Écoute la file alfresco.metadata.index. Il extrait les informations de la base de données relationnelle d'Alfresco, construit les propriétés basiques du document JSON et prépare la structure de contrôle d'accès (ACL).Mise à l'échelle : Très élevée (faible consommation CPU/Mémoire).B. Connecteur de Contenu (Profil content)Mission : Extraire et indexer le texte intégral des fichiers binaires.Comportement : Écoute la file alfresco.content.index. Il récupère le fichier physique sur le ContentStore, sollicite l'Alfresco Transform Service pour la conversion en texte brut (via Apache Tika), puis injecte ce contenu textuel dans le champ content.text d'Elasticsearch.Mise à l'échelle : Maximale. C'est ce composant qui doit être multiplié (scale-up) pour absorber les 6 To de données.C. Connecteur d'Arborescence (Profil path)Mission : Garantir la cohérence des chemins de dossiers et l'héritage des droits d'accès.Comportement : Écoute la file alfresco.path.index. Il recalcule la position hiérarchique du document dans l'arborescence documentaire d'Alfresco.Mise à l'échelle : Strictement unitaire (Single Consumer).⚠️ Alerte d'Architecture : Pour préserver l'intégrité de la structure des dossiers et éviter les collisions d'écritures concurrentielles dans Elasticsearch (VersionConflictEngineException), vous devez configurer ce worker avec une seule et unique instance active.5. Déroulement de la Migration Initiale (Massive Reindexing)Pendant la migration historique initiale, vous utiliserez l'outil Alfresco Elasticsearch Reindexing Application pour numériser la base de données existante et piloter la reconstruction de l'index de recherche :sequenceDiagram
+```
+
+---
+
+## 4. Rôles et Spécifications des Connecteurs d'Indexation
+
+Pour assurer une scalabilité maximale, l'application Alfresco Elasticsearch Connector segmente ses responsabilités d'ingestion à travers trois profils distincts :
+
+### A. Connecteur de Métadonnées (Profil `metadata`)
+- **Mission :** Traiter les aspects, types et permissions d'accès.
+- **Comportement :** Écoute la file `alfresco.metadata.index`. Il extrait les informations de la base de données relationnelle d'Alfresco, construit les propriétés basiques du document JSON et prépare la structure de contrôle d'accès (ACL).
+- **Mise à l'échelle :** Très élevée (faible consommation CPU/Mémoire).
+
+### B. Connecteur de Contenu (Profil `content`)
+- **Mission :** Extraire et indexer le texte intégral des fichiers binaires.
+- **Comportement :** Écoute la file `alfresco.content.index`. Il récupère le fichier physique sur le ContentStore, sollicite l'Alfresco Transform Service pour la conversion en texte brut (via Apache Tika), puis injecte ce contenu textuel dans le champ `content.text` d'Elasticsearch.
+- **Mise à l'échelle :** Maximale. C'est ce composant qui doit être multiplié (scale-up) pour absorber les 6 To de données.
+
+### C. Connecteur d'Arborescence (Profil `path`)
+- **Mission :** Garantir la cohérence des chemins de dossiers et l'héritage des droits d'accès.
+- **Comportement :** Écoute la file `alfresco.path.index`. Il recalcule la position hiérarchique du document dans l'arborescence documentaire d'Alfresco.
+- **Mise à l'échelle :** Strictement unitaire (Single Consumer).
+
+> ⚠️ **Alerte d'Architecture :** Pour préserver l'intégrité de la structure des dossiers et éviter les collisions d'écritures concurrentielles dans Elasticsearch (`VersionConflictEngineException`), vous devez configurer ce worker avec une seule et unique instance active.
+
+---
+
+## 5. Déroulement de la Migration Initiale (Massive Reindexing)
+
+Pendant la migration historique initiale, vous utiliserez l'outil Alfresco Elasticsearch Reindexing Application pour numériser la base de données existante et piloter la reconstruction de l'index de recherche :
+
+```mermaid
+sequenceDiagram
     autonumber
     participant DB as Base de Données (Postgres)
     participant REINDEX as Job de Réindexation (CLI)
@@ -91,7 +169,18 @@ Matrice comparative des deux modèlesCaractéristiqueAncienne Architecture (Solr
         CONN->>CONN: Assemblage du document JSON final
         CONN->>ES: Envoi du document via l'API _bulk (lots de 1000)
     end
-6. Environnement Local Prêt à Déployer (Docker-Compose & Automatisation)Afin de valider la stack technologique, un environnement local entièrement automatisé est décrit ci-dessous. Il intègre un conteneur d'injection de données de démo (dataset-injector) qui prépare le terrain de test avant le lancement automatique de la réindexation.A. Configuration de la Stack : docker-compose.ymlversion: '3.8'
+```
+
+---
+
+## 6. Environnement Local Prêt à Déployer (Docker-Compose & Automatisation)
+
+Afin de valider la stack technologique, un environnement local entièrement automatisé est décrit ci-dessous. Il intègre un conteneur d'injection de données de démo (`dataset-injector`) qui prépare le terrain de test avant le lancement automatique de la réindexation.
+
+### A. Configuration de la Stack : `docker-compose.yml`
+
+```yaml
+version: '3.8'
 
 services:
   # Base de données PostgreSQL transactionnelle d'Alfresco
@@ -258,7 +347,12 @@ services:
 
 volumes:
   postgres-data:
-B. Script de Bootstrap de l'injecteur : scripts/dataset-injector.sh#!/bin/sh
+```
+
+### B. Script de Bootstrap de l'injecteur : `scripts/dataset-injector.sh`
+
+```sh
+#!/bin/sh
 set -e
 
 echo "=== [1/3] Attente de la disponibilité de l'API REST d'Alfresco ==="
@@ -290,35 +384,101 @@ for i in $(seq 1 150); do
 done
 
 echo "✔ Téléversement des données d'évaluation achevé. Lancement automatique de la réindexation de masse..."
-7. Plan de Validation de Performance & Campagne de BenchmarkPour estimer précisément la vitesse d'ingestion de vos données, pilotez et contrôlez le comportement de l'infrastructure à l'aide de ces métriques clés :A. Contrôle de Flux et Rétention (ActiveMQ Artemis)Connectez-vous à la console d'administration ActiveMQ :URL : http://localhost:8161Identifiants : admin / admin_passwordAnalysez l'état des files d'attente. Si la queue alfresco.content.index stagne à un volume de messages en attente trop élevé alors que le CPU d'Elasticsearch est faible, votre goulet d'étranglement réside dans le processus de transformation des fichiers en texte.Action corrective : Augmentez le nombre d'instances de connecteurs de contenu en exécutant à chaud la commande suivante dans votre terminal :docker-compose up -d --scale elasticsearch-connector-content=4
-B. Contrôle du Débit d'Ingestion (Elasticsearch Count API)Mesurez le nombre total de documents indexés avec succès en interrogeant directement l'API d'Elasticsearch :curl -X GET "http://localhost:9200/alfresco/_count?pretty"
-Calculez votre débit d'indexation brut : $\text{Vitesse} = \frac{\Delta \text{ Documents}}{\Delta \text{ Temps (secondes)}}$.C. Validation Structurelle des JSON d'IndexationAssurez-vous que le connecteur compile de manière conforme les permissions complexes d'Alfresco et l'extraction de contenu Apache Tika au sein du document JSON indexé :curl -X GET "http://localhost:9200/alfresco/_search?q=content.text:extraction&pretty"
-8. Sizing & Configuration de Production pour un Volume de 6 ToLe passage à la production pour 6 To de données réelles requiert un calibrage d'architecture robuste.A. Paramétrage Elasticsearch Temporaire pour Migration MassivePendant la phase initiale de réindexation des 6 To, configurez l'index cible en mode d'écriture pure afin de minimiser les entrées/sorties de disque et le trafic réseau superflu :curl -XPUT "http://localhost:9200/alfresco/_settings" -H 'Content-Type: application/json' -d'
+```
+
+---
+
+## 7. Plan de Validation de Performance & Campagne de Benchmark
+
+Pour estimer précisément la vitesse d'ingestion de vos données, pilotez et contrôlez le comportement de l'infrastructure à l'aide de ces métriques clés :
+
+### A. Contrôle de Flux et Rétention (ActiveMQ Artemis)
+
+- **Connectez-vous** à la console d'administration ActiveMQ :
+  - URL : `http://localhost:8161`
+  - Identifiants : `admin` / `admin_password`
+- **Analysez** l'état des files d'attente. Si la queue `alfresco.content.index` stagne à un volume de messages en attente trop élevé alors que le CPU d'Elasticsearch est faible, votre goulet d'étranglement réside dans le processus de transformation des fichiers en texte.
+- **Action corrective :** Augmentez le nombre d'instances de connecteurs de contenu en exécutant à chaud la commande suivante dans votre terminal :
+  ```bash
+  docker-compose up -d --scale elasticsearch-connector-content=4
+  ```
+
+### B. Contrôle du Débit d'Ingestion (Elasticsearch Count API)
+
+Mesurez le nombre total de documents indexés avec succès en interrogeant directement l'API d'Elasticsearch :
+
+```bash
+curl -X GET "http://localhost:9200/alfresco/_count?pretty"
+```
+
+Calculez votre débit d'indexation brut :
+$$ \text{Vitesse} = \frac{\Delta \text{ Documents}}{\Delta \text{ Temps (secondes)}} $$
+
+### C. Validation Structurelle des JSON d'Indexation
+
+Assurez-vous que le connecteur compile de manière conforme les permissions complexes d'Alfresco et l'extraction de contenu Apache Tika au sein du document JSON indexé :
+
+```bash
+curl -X GET "http://localhost:9200/alfresco/_search?q=content.text:extraction&pretty"
+```
+
+---
+
+## 8. Sizing & Configuration de Production pour un Volume de 6 To
+
+Le passage à la production pour 6 To de données réelles requiert un calibrage d'architecture robuste.
+
+### A. Paramétrage Elasticsearch Temporaire pour Migration Massive
+
+Pendant la phase initiale de réindexation des 6 To, configurez l'index cible en mode d'écriture pure afin de minimiser les entrées/sorties de disque et le trafic réseau superflu :
+
+```bash
+curl -XPUT "http://localhost:9200/alfresco/_settings" -H 'Content-Type: application/json' -d'
 {
   "index" : {
     "refresh_interval" : "-1",
     "number_of_replicas" : 0
   }
 }'
-refresh_interval: "-1" : Désactive le processus de rafraîchissement continuel des segments de recherche en mémoire vers le disque (Lucene segment merge).number_of_replicas: 0 : Supprime la duplication synchrone des données sur d'autres nœuds de données du cluster pendant l'indexation.Une fois l'ingestion initiale terminée, réactivez la résilience et la fraîcheur d'indexation :curl -XPUT "http://localhost:9200/alfresco/_settings" -H 'Content-Type: application/json' -d'
+```
+
+- `refresh_interval: "-1"` : Désactive le processus de rafraîchissement continuel des segments de recherche en mémoire vers le disque (Lucene segment merge).
+- `number_of_replicas: 0` : Supprime la duplication synchrone des données sur d'autres nœuds de données du cluster pendant l'indexation.
+
+Une fois l'ingestion initiale terminée, réactivez la résilience et la fraîcheur d'indexation :
+
+```bash
+curl -XPUT "http://localhost:9200/alfresco/_settings" -H 'Content-Type: application/json' -d'
 {
   "index" : {
     "refresh_interval" : "1s",
     "number_of_replicas" : 1
   }
 }'
-B. Calcul du Sharding (Capacity Planning)L'indexation de métadonnées et du contenu de fichiers d'une volumétrie binaire brute de 6 To représente en moyenne une empreinte d'indexation Elasticsearch finale de 10% à 15% (soit environ 600 Go à 900 Go de données d'index).La recommandation pour la recherche d'entreprise est de maintenir la taille d'un shard entre 30 Go et 50 Go :$$\text{Nombre de shards primaires requis} = \frac{900\text{ Go}}{45\text{ Go}} = 20\text{ shards primaires}
 ```
+
+### B. Calcul du Sharding (Capacity Planning)
+
+L'indexation de métadonnées et du contenu de fichiers d'une volumétrie binaire brute de 6 To représente en moyenne une empreinte d'indexation Elasticsearch finale de 10% à 15% (soit environ 600 Go à 900 Go de données d'index).
+
+La recommandation pour la recherche d'entreprise est de maintenir la taille d'un shard entre 30 Go et 50 Go :
+
+$$ \text{Nombre de shards primaires requis} = \frac{900\text{ Go}}{45\text{ Go}} = 20\text{ shards primaires} $$
 
 Vous devez définir l'index `alfresco` avec **20 shards primaires** lors de son initialisation.
 
 ### C. Topologie Recommandée du Cluster Elasticsearch en Production
+
 Pour supporter 6 To de données avec des temps de réponse sous la seconde en production, appliquez la configuration matérielle suivante :
 
-* **3 Nœuds de Données Dédiés (Data Nodes) :**
-  * **Processeur :** 8 à 16 Cores CPU.
-  * **Mémoire Vive :** 32 Go RAM par nœud (la taille de la heap JVM configurée à 16 Go pour préserver 16 Go de cache OS pour le système de fichiers Lucene).
-  * **Stockage :** Disques SSD de classe entreprise locaux (NVMe recommandés) pour supporter un haut niveau d'I/O.
-* **3 Nœuds Maîtres Dédiés (Dedicated Master Nodes) :**
-  * **Ressources :** 8 Go RAM, 2 à 4 Cores CPU.
-  * **Mission :** Coordonner les états du cluster, gérer le quorum et éviter la situation de partitionnement de réseau (*Split-Brain*).$$
+- **3 Nœuds de Données Dédiés (Data Nodes) :**
+  - **Processeur :** 8 à 16 Cores CPU.
+  - **Mémoire Vive :** 32 Go RAM par nœud (la taille de la heap JVM configurée à 16 Go pour préserver 16 Go de cache OS pour le système de fichiers Lucene).
+  - **Stockage :** Disques SSD de classe entreprise locaux (NVMe recommandés) pour supporter un haut niveau d'I/O.
+- **3 Nœuds Maîtres Dédiés (Dedicated Master Nodes) :**
+  - **Ressources :** 8 Go RAM, 2 à 4 Cores CPU.
+  - **Mission :** Coordonner les états du cluster, gérer le quorum et éviter la situation de partitionnement de réseau (*Split-Brain*).
+- **1 Nœud de Coordonnateur (Coordination Node) :**
+  - **Ressources :** 8 Go RAM, 2 à 4 Cores CPU.   
+- **1 Nœud de Supervision (Monitoring Node) :**
+  - **Ressources :** 8 Go RAM, 2 à 4 Cores CPU. 

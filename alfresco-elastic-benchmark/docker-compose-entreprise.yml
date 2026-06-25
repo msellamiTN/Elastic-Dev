@@ -1,0 +1,168 @@
+version: '3.8'
+
+services:
+  # -------------------------------------------------------------------------
+  # COUCHE INFRASTRUCTURE & STOCKAGE
+  # -------------------------------------------------------------------------
+  postgres:
+    image: postgres:14.4
+    environment:
+      POSTGRES_DB: alfresco
+      POSTGRES_USER: alfresco
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U alfresco"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  activemq:
+    image: apache/activemq-artemis:2.23.0-alpine
+    environment:
+      ARTEMIS_USER: admin
+      ARTEMIS_PASSWORD: admin_password
+    ports:
+      - "61616:61616" 
+      - "8161:8161"   
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 61616 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.10
+    environment:
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms2g -Xmx2g"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    ports:
+      - "9200:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -q '\"status\":\"green\"\\|\"status\":\"yellow\"'"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:7.17.10
+    ports:
+      - "5601:5601"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
+  # -------------------------------------------------------------------------
+  # COUCHE CORE ALFRESCO ECM & PIPELINES
+  # -------------------------------------------------------------------------
+  alfresco:
+    image: alfresco/alfresco-content-repository:7.4.0
+    environment:
+      - JAVA_OPTS=-Ddb.driver=org.postgresql.Driver -Ddb.username=alfresco -Ddb.password=password -Ddb.url=jdbc:postgresql://postgres:5432/alfresco -Dmessaging.subsystem.autoStart=true -Devents.subsystem.autoStart=true -Dmessaging.broker.url=failover:(tcp://activemq:61616)
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      activemq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -u admin:admin http://localhost:8080/alfresco/api/-default-/public/alfresco/versions/1/probes/-ready- | grep -q '\"status\":\"Green\"' || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  transform-service:
+    image: alfresco/alfresco-transform-core-aio:3.0.0
+    ports:
+      - "8090:8090"
+
+  # -------------------------------------------------------------------------
+  # WORKERS DE INDEXATION SÉPARÉS (CONECTEURS)
+  # -------------------------------------------------------------------------
+  elasticsearch-connector-metadata:
+    image: alfresco/alfresco-elasticsearch-connector:3.0.0
+    environment:
+      - ALFRESCO_ACTIVEMQ_URL=tcp://activemq:61616
+      - ALFRESCO_ELASTICSEARCH_HOST=elasticsearch
+      - ALFRESCO_ELASTICSEARCH_PORT=9200
+      - SPRING_PROFILES_ACTIVE=metadata
+    depends_on:
+      activemq:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+
+  elasticsearch-connector-content:
+    image: alfresco/alfresco-elasticsearch-connector:3.0.0
+    environment:
+      - ALFRESCO_ACTIVEMQ_URL=tcp://activemq:61616
+      - ALFRESCO_ELASTICSEARCH_HOST=elasticsearch
+      - ALFRESCO_ELASTICSEARCH_PORT=9200
+      - ALFRESCO_TRANSFORM_URL=http://transform-service:8090
+      - SPRING_PROFILES_ACTIVE=content
+    depends_on:
+      activemq:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+
+  elasticsearch-connector-path:
+    image: alfresco/alfresco-elasticsearch-connector:3.0.0
+    environment:
+      - ALFRESCO_ACTIVEMQ_URL=tcp://activemq:61616
+      - ALFRESCO_ELASTICSEARCH_HOST=elasticsearch
+      - ALFRESCO_ELASTICSEARCH_PORT=9200
+      - SPRING_PROFILES_ACTIVE=path
+    deploy:
+      replicas: 1 # /!\ Règle d'or : Doit rester à 1 pour éviter les conflits de hiérarchie
+    depends_on:
+      activemq:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+
+  # -------------------------------------------------------------------------
+  # AUTOMATION ET BENCHMARK COUCHE
+  # -------------------------------------------------------------------------
+  dataset-injector:
+    image: curlimages/curl:7.85.0
+    entrypoint: ["/bin/sh", "/scripts/dataset-injector.sh"]
+    volumes:
+      - ./scripts:/scripts
+    depends_on:
+      alfresco:
+        condition: service_healthy
+
+  alfresco-reindexing-job:
+    image: alfresco/alfresco-elasticsearch-reindexing:3.0.0
+    environment:
+      - ALFRESCO_ACTIVEMQ_URL=tcp://activemq:61616
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/alfresco
+      - SPRING_DATASOURCE_USERNAME=alfresco
+      - SPRING_DATASOURCE_PASSWORD=password
+      - SPRING_DATASOURCE_DRIVER_CLASS_NAME=org.postgresql.Driver
+      - ALFRESCO_REINDEX_PAGESIZE=100
+      - ALFRESCO_REINDEX_BATCHSIZE=50
+    command: >
+      --alfresco.reindex.jobName=reindexByIds
+      --alfresco.reindex.fromId=0
+      --alfresco.reindex.toId=100000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      activemq:
+        condition: service_healthy
+      dataset-injector:
+        condition: service_completed_successfully
+
+volumes:
+  postgres-data:
