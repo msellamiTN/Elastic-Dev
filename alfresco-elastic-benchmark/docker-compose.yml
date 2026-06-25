@@ -43,7 +43,7 @@ services:
   # sur le port 61613, requis par event-bridge.
   # --------------------------------------------------------------------
   activemq:
-    image: apache/activemq-artemis:2.23.0-alpine
+    image: pache/activemq-artemis:latest
     environment:
       ARTEMIS_USER: admin
       ARTEMIS_PASSWORD: admin_password
