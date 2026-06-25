@@ -1,3 +1,5 @@
+version: "3.8"
+
 services:
   setup:
     image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
@@ -129,6 +131,20 @@ services:
       interval: 10s
       timeout: 10s
       retries: 120
+
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: portainer
+    restart: always
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+    ports:
+      - "9000:9000"
+      - "9443:9443"
+
 volumes:
   certs:
     driver: local
@@ -139,4 +155,6 @@ volumes:
   esdata03:
     driver: local
   kibanadata:
+    driver: local
+  portainer_data:
     driver: local
