@@ -1,0 +1,24 @@
+ 
+2025-03-24 12:38:47 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2025-03-24 12:38:47 ✅ Elasticsearch security features have been automatically configured!
+2025-03-24 12:38:47 ✅ Authentication is enabled and cluster connections are encrypted.
+2025-03-24 12:38:47 
+2025-03-24 12:38:47 ℹ️  Password for the elastic user (reset with `bin/elasticsearch-reset-password -u elastic`):
+2025-03-24 12:38:47   wY*VfP1ZYW7I69OzEucu
+2025-03-24 12:38:47 
+2025-03-24 12:38:47 ℹ️  HTTP CA certificate SHA-256 fingerprint:
+2025-03-24 12:38:47   9cba83c1c6eb8a5888db6ed50d988990cf192a3ce4a7c18159a0f5c4cefe0220
+2025-03-24 12:38:47 
+2025-03-24 12:38:47 ℹ️  Configure Kibana to use this cluster:
+2025-03-24 12:38:47 • Run Kibana and click the configuration link in the terminal when Kibana starts.
+2025-03-24 12:38:47 • Copy the following enrollment token and paste it into Kibana in your browser (valid for the next 30 minutes):
+2025-03-24 12:38:47   eyJ2ZXIiOiI4LjEzLjQiLCJhZHIiOlsiMTcyLjIzLjAuMjo5MjAwIl0sImZnciI6IjljYmE4M2MxYzZlYjhhNTg4OGRiNmVkNTBkOTg4OTkwY2YxOTJhM2NlNGE3YzE4MTU5YTBmNWM0Y2VmZTAyMjAiLCJrZXkiOiJ1UFh5eDVVQmJneWc4RXlGcm92MzoyX2Y5MmRSRlJzYUtsdmlsajIwMndRIn0=
+2025-03-24 12:38:47 
+2025-03-24 12:38:47 ℹ️ Configure other nodes to join this cluster:
+2025-03-24 12:38:47 • Copy the following enrollment token and start new Elasticsearch nodes with `bin/elasticsearch --enrollment-token <token>` (valid for the next 30 minutes):
+2025-03-24 12:38:47   eyJ2ZXIiOiI4LjEzLjQiLCJhZHIiOlsiMTcyLjIzLjAuMjo5MjAwIl0sImZnciI6IjljYmE4M2MxYzZlYjhhNTg4OGRiNmVkNTBkOTg4OTkwY2YxOTJhM2NlNGE3YzE4MTU5YTBmNWM0Y2VmZTAyMjAiLCJrZXkiOiJ1Zlh5eDVVQmJneWc4RXlGcm92NDp3LWJQRjBfa1JGYVR6UUdzSk05MXJ3In0=
+2025-03-24 12:38:47 
+2025-03-24 12:38:47   If you're running in Docker, copy the enrollment token and run:
+2025-03-24 12:38:47   `docker run -e "ENROLLMENT_TOKEN=<token>" docker.elastic.co/elasticsearch/elasticsearch:8.13.4`
+2025-03-24 12:38:47 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 
