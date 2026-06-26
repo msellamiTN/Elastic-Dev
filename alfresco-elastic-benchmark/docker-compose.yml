@@ -103,10 +103,13 @@ services:
   # (désactivé par défaut sur cette édition).
   # --------------------------------------------------------------------
   alfresco:
-    image: alfresco/alfresco-content-repository-community:latest
+    image: alfresco/alfresco-content-repository-community:23.3.24
 
     environment:
       JAVA_OPTS: >-
+        -XX:-UseContainerSupport
+        -Xms2g
+        -Xmx2g
         -Ddb.driver=org.postgresql.Driver
         -Ddb.username=alfresco
         -Ddb.password=password
@@ -128,11 +131,11 @@ services:
       test:
         [
           "CMD-SHELL",
-          "curl -s -u admin:admin http://localhost:8080/alfresco/api/-default-/public/alfresco/versions/1/probes/-ready- | grep -q 'Green' || exit 1"
+          "curl -f http://localhost:8080/alfresco/api/-default-/public/alfresco/versions/1/probes/-ready- || exit 1"
         ]
-      interval: 10s
+      interval: 15s
       timeout: 10s
-      retries: 20
+      retries: 30
 
   # --------------------------------------------------------------------
   # Service d'extraction de contenu (Apache Tika, image Community publique)
