@@ -278,10 +278,254 @@ Intégrez l'application à votre stack existante (votre fichier `docker-compose.
 
 1. Construisez et lancez la stack : `docker compose up -d --build`
 2. Regardez les logs : `docker compose logs -f email-indexer`
-3. Exécutez une requête CRUD :
-   ```bash
-   curl -X GET http://localhost:8080/api/emails | jq
-   ```
-4. Connectez-vous sur **Kibana** (`http://localhost:5601`) et créez une *Data View* ciblant l'index `emails`. Vous pouvez maintenant visualiser toutes les données ingérées !
+3. Validez avec les tests curl ci-dessous.
 
-*Félicitations, vous avez mené à bien l'intégration complète d'une API Java / Elasticsearch dans un environnement Dockerisé sécurisé !*
+---
+
+## 🧪 9. Tests des API avec curl
+
+Une fois la stack lancée, l'API est disponible sur `http://localhost:8080/api/emails`.
+Voici les commandes curl pour tester **chaque endpoint CRUD**.
+
+> [!TIP]
+> Installez `jq` pour afficher le JSON en couleur : `sudo apt install jq` (Linux) ou `choco install jq` (Windows).
+
+### 9.1 — CREATE : Créer un email (`POST`)
+
+```bash
+curl -s -X POST http://localhost:8080/api/emails \
+  -H "Content-Type: application/json" \
+  -d '{
+    "subject": "Alerte de sécurité - Test QRQC",
+    "body": "Ceci est un email de test créé via API curl pour valider le pipeline Spring Boot → Elasticsearch.",
+    "sender": "admin@wevops.com",
+    "recipient": "security-team@wevops.com",
+    "date": "2026-06-26T15:00:00.000000",
+    "tags": ["test", "qrqc", "curl"],
+    "attack_type": "phishing",
+    "attachments": [
+      {
+        "filename": "rapport_test.pdf",
+        "content_type": "application/pdf"
+      }
+    ],
+    "ioc": [
+      {
+        "indicator": "192.168.1.100",
+        "type": "ip"
+      },
+      {
+        "indicator": "malware.example.com",
+        "type": "domain"
+      }
+    ]
+  }' | jq
+```
+
+**Réponse attendue** (HTTP 200) :
+```json
+{
+  "id": "abc123...",
+  "subject": "Alerte de sécurité - Test QRQC",
+  "sender": "admin@wevops.com",
+  ...
+}
+```
+
+> [!IMPORTANT]
+> Notez le champ `"id"` retourné dans la réponse. Copiez-le pour les prochaines commandes.
+> Remplacez `<ID>` ci-dessous par cette valeur.
+
+---
+
+### 9.2 — READ : Lire un email par son ID (`GET /{id}`)
+
+```bash
+curl -s -X GET http://localhost:8080/api/emails/<ID> | jq
+```
+
+**Réponse attendue** (HTTP 200) : Le document complet de l'email créé à l'étape 9.1.
+
+**En cas d'ID inexistant** (HTTP 404) :
+```bash
+curl -s -o /dev/null -w "HTTP Status: %{http_code}\n" \
+  http://localhost:8080/api/emails/id_inexistant_12345
+```
+> Résultat : `HTTP Status: 404`
+
+---
+
+### 9.3 — READ ALL : Lister tous les emails (`GET`)
+
+```bash
+curl -s -X GET http://localhost:8080/api/emails | jq length
+```
+
+Cette commande retourne le **nombre total** d'emails indexés.
+Si le `DataSeeder` a fonctionné, vous devriez obtenir **3606** (ou plus si vous avez créé des emails manuellement).
+
+Pour afficher les **5 premiers** :
+```bash
+curl -s -X GET http://localhost:8080/api/emails | jq '.[0:5]'
+```
+
+---
+
+### 9.4 — UPDATE : Mettre à jour un email (`PUT /{id}`)
+
+```bash
+curl -s -X PUT http://localhost:8080/api/emails/<ID> \
+  -H "Content-Type: application/json" \
+  -d '{
+    "subject": "Alerte de sécurité - MISE A JOUR",
+    "body": "Ce body a été modifié via un appel PUT curl.",
+    "sender": "admin@wevops.com",
+    "recipient": "ciso@wevops.com",
+    "date": "2026-06-26T16:30:00.000000",
+    "tags": ["test", "qrqc", "curl", "updated"],
+    "attack_type": "spear-phishing",
+    "attachments": [
+      {
+        "filename": "rapport_v2.pdf",
+        "content_type": "application/pdf"
+      }
+    ],
+    "ioc": [
+      {
+        "indicator": "10.0.0.50",
+        "type": "ip"
+      }
+    ]
+  }' | jq
+```
+
+**Réponse attendue** (HTTP 200) : Le document mis à jour avec les nouveaux champs.
+
+Vérifiez la mise à jour en relisant :
+```bash
+curl -s http://localhost:8080/api/emails/<ID> | jq '.subject, .recipient, .tags'
+```
+> Résultat : `"Alerte de sécurité - MISE A JOUR"`, `"ciso@wevops.com"`, `["test","qrqc","curl","updated"]`
+
+---
+
+### 9.5 — DELETE : Supprimer un email (`DELETE /{id}`)
+
+```bash
+curl -s -o /dev/null -w "HTTP Status: %{http_code}\n" \
+  -X DELETE http://localhost:8080/api/emails/<ID>
+```
+
+**Réponse attendue** : `HTTP Status: 204` (No Content — suppression réussie).
+
+Confirmez la suppression :
+```bash
+curl -s -o /dev/null -w "HTTP Status: %{http_code}\n" \
+  http://localhost:8080/api/emails/<ID>
+```
+> Résultat : `HTTP Status: 404` (l'email n'existe plus).
+
+---
+
+### 9.6 — Script de test complet (enchaînement automatique)
+
+Copiez ce script Bash pour exécuter le cycle CRUD complet en une seule commande :
+
+```bash
+#!/bin/bash
+# test_api.sh — Test complet CRUD Email Indexer
+BASE_URL="http://localhost:8080/api/emails"
+
+echo "========================================"
+echo "   TEST CRUD — Email Indexer API"
+echo "========================================"
+
+# 1. CREATE
+echo -e "\n🟢 1. POST — Création d'un email..."
+RESPONSE=$(curl -s -X POST "$BASE_URL" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "subject": "Email de test automatique",
+    "body": "Créé par le script de test CRUD.",
+    "sender": "test@wevops.com",
+    "recipient": "qa@wevops.com",
+    "date": "2026-06-26T12:00:00.000000",
+    "tags": ["auto-test"],
+    "attack_type": "none",
+    "attachments": [],
+    "ioc": []
+  }')
+echo "$RESPONSE" | jq
+ID=$(echo "$RESPONSE" | jq -r '.id')
+echo "   → ID créé : $ID"
+
+# 2. READ by ID
+echo -e "\n🔵 2. GET /$ID — Lecture par ID..."
+curl -s "$BASE_URL/$ID" | jq
+
+# 3. READ ALL (count)
+echo -e "\n🔵 3. GET / — Nombre total d'emails..."
+COUNT=$(curl -s "$BASE_URL" | jq length)
+echo "   → Total : $COUNT emails"
+
+# 4. UPDATE
+echo -e "\n🟡 4. PUT /$ID — Mise à jour..."
+curl -s -X PUT "$BASE_URL/$ID" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "subject": "Email modifié par le script",
+    "body": "Body mis à jour.",
+    "sender": "test@wevops.com",
+    "recipient": "devops@wevops.com",
+    "date": "2026-06-26T13:00:00.000000",
+    "tags": ["auto-test", "updated"],
+    "attack_type": "none",
+    "attachments": [],
+    "ioc": []
+  }' | jq '.subject, .recipient'
+
+# 5. DELETE
+echo -e "\n🔴 5. DELETE /$ID — Suppression..."
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE "$BASE_URL/$ID")
+echo "   → HTTP Status : $HTTP_CODE"
+
+# 6. Vérification
+echo -e "\n🔍 6. Vérification — L'email doit être 404..."
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$BASE_URL/$ID")
+echo "   → HTTP Status : $HTTP_CODE"
+
+echo -e "\n========================================"
+echo "   ✅ TEST TERMINÉ"
+echo "========================================"
+```
+
+Lancez-le :
+```bash
+chmod +x test_api.sh && ./test_api.sh
+```
+
+---
+
+### 📊 Tableau récapitulatif des Endpoints
+
+| Méthode  | Endpoint              | Description                    | Code Succès |
+|----------|-----------------------|--------------------------------|-------------|
+| `POST`   | `/api/emails`         | Créer un nouvel email          | `200`       |
+| `GET`    | `/api/emails/{id}`    | Lire un email par son ID       | `200`       |
+| `GET`    | `/api/emails`         | Lister tous les emails         | `200`       |
+| `PUT`    | `/api/emails/{id}`    | Mettre à jour un email         | `200`       |
+| `DELETE` | `/api/emails/{id}`    | Supprimer un email             | `204`       |
+
+---
+
+## 🔎 10. Vérification dans Kibana
+
+1. Connectez-vous sur **Kibana** : `http://localhost:5601`
+2. Allez dans **Stack Management → Data Views** et créez une *Data View* ciblant l'index `emails`
+3. Accédez à **Discover** pour visualiser toutes les données ingérées
+4. Essayez des requêtes KQL dans la barre de recherche :
+   ```
+   subject: "sécurité" AND tags: "test"
+   ```
+
+*Félicitations, vous avez mené à bien l'intégration complète d'une API Java / Elasticsearch dans un environnement Dockerisé sécurisé !* 🎉
