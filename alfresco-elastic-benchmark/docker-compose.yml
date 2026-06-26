@@ -103,7 +103,7 @@ services:
   # (désactivé par défaut sur cette édition).
   # --------------------------------------------------------------------
   alfresco:
-    image: alfresco/alfresco-content-repository:7.4.0
+    image: alfresco/alfresco-content-repository-community:7.4.0
     environment:
       - JAVA_OPTS=
           -Ddb.driver=org.postgresql.Driver
