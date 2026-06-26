@@ -103,25 +103,33 @@ services:
   # (désactivé par défaut sur cette édition).
   # --------------------------------------------------------------------
   alfresco:
-    image: alfresco/alfresco-content-repository-community
+    image: alfresco/alfresco-content-repository-community:23.3.24
+
     environment:
-      - JAVA_OPTS=
-          -Ddb.driver=org.postgresql.Driver
-          -Ddb.username=alfresco
-          -Ddb.password=password
-          -Ddb.url=jdbc:postgresql://postgres:5432/alfresco
-          -Dmessaging.subsystem.autoStart=true
-          -Dmessaging.broker.url=failover:(tcp://activemq:61616)
-          -Drepo.event2.enabled=true
+      JAVA_OPTS: >-
+        -Ddb.driver=org.postgresql.Driver
+        -Ddb.username=alfresco
+        -Ddb.password=password
+        -Ddb.url=jdbc:postgresql://postgres:5432/alfresco
+        -Dmessaging.subsystem.autoStart=true
+        "-Dmessaging.broker.url=failover:(tcp://activemq:61616)"
+        -Drepo.event2.enabled=true
+
     ports:
       - "8080:8080"
+
     depends_on:
       postgres:
         condition: service_healthy
       activemq:
-        condition: service_healthy
+        condition: service_started
+
     healthcheck:
-      test: ["CMD-SHELL", "curl -s -u admin:admin http://localhost:8080/alfresco/api/-default-/public/alfresco/versions/1/probes/-ready- | grep -q '\"status\":\"Green\"' || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "curl -s -u admin:admin http://localhost:8080/alfresco/api/-default-/public/alfresco/versions/1/probes/-ready- | grep -q 'Green' || exit 1"
+        ]
       interval: 10s
       timeout: 10s
       retries: 20
