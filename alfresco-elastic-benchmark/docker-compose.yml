@@ -103,7 +103,7 @@ services:
   # (désactivé par défaut sur cette édition).
   # --------------------------------------------------------------------
   alfresco:
-    image: alfresco/alfresco-content-repository-community:23.3.24
+    image: alfresco/alfresco-content-repository-community:latest
 
     environment:
       JAVA_OPTS: >-
