@@ -23,10 +23,10 @@ graph TD
         USER((fa:fa-user Utilisateur))
         
         API -->|1. Lit au démarrage| DATA
-        API <-->|2. Indexe & Requête (HTTPS/9200)| ES
+        API <-->|2. Indexe et Requete sur HTTPS 9200| ES
         KIB <-->|Visualisation| ES
-        USER <-->|3. Appels HTTP CRUD (Port 8080)| API
-        USER <-->|Consulte les Dashboards (Port 5601)| KIB
+        USER <-->|3. Appels HTTP CRUD sur Port 8080| API
+        USER <-->|Consulte les Dashboards sur Port 5601| KIB
     end
     
     style ES fill:#00bfb3,stroke:#fff,stroke-width:2px,color:#000
