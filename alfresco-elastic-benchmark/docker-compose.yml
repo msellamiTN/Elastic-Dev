@@ -60,43 +60,43 @@ services:
   # --------------------------------------------------------------------
   # Elasticsearch 8.13.4 — nœud unique, sécurité désactivée pour la démo
   # --------------------------------------------------------------------
-  elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
-    environment:
-      - discovery.type=single-node
-      - bootstrap.memory_lock=true
-      - "ES_JAVA_OPTS=-Xms2g -Xmx2g"
-      # Démo uniquement : désactive l'authentification + le TLS HTTP/transport
-      # (activés par défaut depuis Elasticsearch 8.x)
-      - xpack.security.enabled=false
-      - xpack.security.http.ssl.enabled=false
-      - xpack.security.transport.ssl.enabled=false
-      - xpack.license.self_generated.type=basic
-    ulimits:
-      memlock:
-        soft: -1
-        hard: -1
-    ports:
-      - "9200:9200"
-    healthcheck:
-      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -q '\"status\":\"green\"\\|\"status\":\"yellow\"'"]
-      interval: 10s
-      timeout: 5s
-      retries: 20
+  # elasticsearch:
+  #   image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+  #   environment:
+  #     - discovery.type=single-node
+  #     - bootstrap.memory_lock=true
+  #     - "ES_JAVA_OPTS=-Xms2g -Xmx2g"
+  #     # Démo uniquement : désactive l'authentification + le TLS HTTP/transport
+  #     # (activés par défaut depuis Elasticsearch 8.x)
+  #     - xpack.security.enabled=false
+  #     - xpack.security.http.ssl.enabled=false
+  #     - xpack.security.transport.ssl.enabled=false
+  #     - xpack.license.self_generated.type=basic
+  #   ulimits:
+  #     memlock:
+  #       soft: -1
+  #       hard: -1
+  #   ports:
+  #     - "9200:9200"
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -q '\"status\":\"green\"\\|\"status\":\"yellow\"'"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 20
 
   # --------------------------------------------------------------------
   # Kibana 8.13.4 (version alignée sur Elasticsearch)
   # --------------------------------------------------------------------
-  kibana:
-    image: docker.elastic.co/kibana/kibana:8.13.4
-    environment:
-      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
-      - XPACK_SECURITY_ENABLED=false
-    ports:
-      - "5601:5601"
-    depends_on:
-      elasticsearch:
-        condition: service_healthy
+  # kibana:
+  #   image: docker.elastic.co/kibana/kibana:8.13.4
+  #   environment:
+  #     - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+  #     - XPACK_SECURITY_ENABLED=false
+  #   ports:
+  #     - "5601:5601"
+  #   depends_on:
+  #     elasticsearch:
+  #       condition: service_healthy
 
   # --------------------------------------------------------------------
   # Repository Core Alfresco Community — repo.event2 ACTIVÉ explicitement
