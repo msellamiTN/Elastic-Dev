@@ -1,0 +1,24 @@
+2026.06.26 09:06:35 WARN  Using H2 2.4.240 which is newer than the version Flyway has been verified with. The latest verified version of H2 is 2.3.232.
+2026.06.26 09:06:36 WARN  no build tool detected in workspace 'D:\Formation\Wevops\Elastic Stack\Elastic-Dev'. The most common cause for this problem is that the editor was opened in the wrong working directory, for example if you use sbt then the workspace directory should contain build.sbt. 
+2026.06.26 09:06:36 WARN  Build server is not auto-connectable.
+2026.06.26 09:06:36 WARN  no build target for: D:\Formation\Wevops\Elastic Stack\Elastic-Dev\docker_elk\email-indexer\src\main\java\com\wevops\emailindexer\EmailIndexerApplication.java
+2026.06.26 09:06:36 WARN  no build target for: D:\Formation\Wevops\Elastic Stack\Elastic-Dev\docker_elk\email-indexer\src\test\java\com\wevops\email_indexer\EmailIndexerApplicationTests.java
+2026.06.26 09:06:36 WARN  no build target for: D:\Formation\Wevops\Elastic Stack\Elastic-Dev\docker_elk\email-indexer\src\main\java\com\wevops\emailindexer\component\DataSeeder.java
+2026.06.26 09:06:36 WARN  no build target for: D:\Formation\Wevops\Elastic Stack\Elastic-Dev\docker_elk\email-indexer\src\main\java\com\wevops\emailindexer\controller\EmailController.java
+2026.06.26 09:06:36 WARN  no build target for: D:\Formation\Wevops\Elastic Stack\Elastic-Dev\docker_elk\email-indexer\src\main\java\com\wevops\emailindexer\repository\EmailRepository.java
+2026.06.26 09:06:36 WARN  no build target for: D:\Formation\Wevops\Elastic Stack\Elastic-Dev\docker_elk\email-indexer\src\main\java\com\wevops\emailindexer\model\Email.java
+2026.06.26 09:06:36 WARN  no build target for: D:\Formation\Wevops\Elastic Stack\Elastic-Dev\docker_elk\email-indexer\src\main\java\com\wevops\emailindexer\service\EmailService.java
+2026.06.26 09:06:37 WARN  Running javac-semanticdb failed for file:///D:/Formation/Wevops/Elastic%20Stack/Elastic-Dev/docker_elk/email-indexer/src/test/java/com/wevops/email_indexer/EmailIndexerApplicationTests.java. Output:
+
+2026.06.26 09:06:37 WARN  Running javac-semanticdb failed for file:///D:/Formation/Wevops/Elastic%20Stack/Elastic-Dev/docker_elk/email-indexer/src/main/java/com/wevops/emailindexer/EmailIndexerApplication.java. Output:
+
+2026.06.26 09:06:37 WARN  Running javac-semanticdb failed for file:///D:/Formation/Wevops/Elastic%20Stack/Elastic-Dev/docker_elk/email-indexer/src/main/java/com/wevops/emailindexer/component/DataSeeder.java. Output:
+
+2026.06.26 09:06:37 WARN  Running javac-semanticdb failed for file:///D:/Formation/Wevops/Elastic%20Stack/Elastic-Dev/docker_elk/email-indexer/src/main/java/com/wevops/emailindexer/service/EmailService.java. Output:
+
+2026.06.26 09:06:38 WARN  Running javac-semanticdb failed for file:///D:/Formation/Wevops/Elastic%20Stack/Elastic-Dev/docker_elk/email-indexer/src/main/java/com/wevops/emailindexer/model/Email.java. Output:
+
+2026.06.26 09:06:38 WARN  Running javac-semanticdb failed for file:///D:/Formation/Wevops/Elastic%20Stack/Elastic-Dev/docker_elk/email-indexer/src/main/java/com/wevops/emailindexer/repository/EmailRepository.java. Output:
+
+2026.06.26 09:06:38 WARN  Running javac-semanticdb failed for file:///D:/Formation/Wevops/Elastic%20Stack/Elastic-Dev/docker_elk/email-indexer/src/main/java/com/wevops/emailindexer/controller/EmailController.java. Output:
+

@@ -145,6 +145,18 @@ services:
       - "9000:9000"
       - "9443:9443"
 
+  email-indexer:
+    build: ./email-indexer
+    environment:
+      - ELASTICSEARCH_URIS=http://elasticsearch:9200
+      - DATASET_PATH=/data/emails_dataset.json
+    volumes:
+      - ../data:/data:ro
+    ports:
+      - "8080:8080"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
 volumes:
   certs:
     driver: local
