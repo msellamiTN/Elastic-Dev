@@ -12,9 +12,13 @@ Avant de coder, comprenons comment les différentes briques communiquent entre e
 
 ```mermaid
 graph TD
-    subgraph "Docker Host (VM/Local)"
-        subgraph "Réseau Docker (docker_elk)"
-            ES(fa:fa-database Elasticsearch<br/>es01:9200)
+    subgraph "Docker Host - VM ou Local"
+        subgraph "Réseau Docker - docker_elk"
+            subgraph "Cluster Elasticsearch 3 noeuds"
+                ES1(fa:fa-database es01 - Master/Data<br/>Port 9200)
+                ES2(fa:fa-database es02 - Master/Data<br/>Port 9201)
+                ES3(fa:fa-database es03 - Master/Data<br/>Port 9202)
+            end
             KIB(fa:fa-chart-bar Kibana<br/>localhost:5601)
             API(fa:fa-cogs Spring Boot API<br/>email-indexer:8080)
         end
@@ -22,14 +26,21 @@ graph TD
         DATA[fa:fa-file-code emails_dataset.json<br/>Volume monté]
         USER((fa:fa-user Utilisateur))
         
+        ES1 <--> ES2
+        ES2 <--> ES3
+        ES1 <--> ES3
         API -->|1. Lit au démarrage| DATA
-        API <-->|2. Indexe et Requete sur HTTPS 9200| ES
-        KIB <-->|Visualisation| ES
-        USER <-->|3. Appels HTTP CRUD sur Port 8080| API
-        USER <-->|Consulte les Dashboards sur Port 5601| KIB
+        API <-->|2. Indexe et Requete HTTPS| ES1
+        KIB <-->|Visualisation HA| ES1
+        KIB <-->|Failover| ES2
+        KIB <-->|Failover| ES3
+        USER <-->|3. Appels HTTP CRUD Port 8080| API
+        USER <-->|Consulte Dashboards Port 5601| KIB
     end
     
-    style ES fill:#00bfb3,stroke:#fff,stroke-width:2px,color:#000
+    style ES1 fill:#00bfb3,stroke:#fff,stroke-width:2px,color:#000
+    style ES2 fill:#00bfb3,stroke:#fff,stroke-width:2px,color:#000
+    style ES3 fill:#00bfb3,stroke:#fff,stroke-width:2px,color:#000
     style KIB fill:#f04e98,stroke:#fff,stroke-width:2px,color:#fff
     style API fill:#6db33f,stroke:#fff,stroke-width:2px,color:#fff
 ```
@@ -248,11 +259,68 @@ COPY --from=build ${DEPENDENCY}/BOOT-INF/classes /app
 ENTRYPOINT ["java","-cp","app:app/lib/*","com.wevops.emailindexer.EmailIndexerApplication"]
 ```
 
-### Étape 8 : Déploiement et Test avec Docker Compose
+### Étape 8 : Déploiement en Cluster avec Docker Compose
 
-Intégrez l'application à votre stack existante (votre fichier `docker-compose.yml`) :
+Notre stack utilise un **vrai cluster Elasticsearch de 3 nœuds** pour illustrer la haute disponibilité et la réplication des données.
+
+#### Configuration du Cluster (extrait `docker-compose.yml`)
+
+Chaque nœud partage les mêmes `cluster.initial_master_nodes` et a ses propres certificats TLS :
 
 ```yaml
+  es01:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+    volumes:
+      - certs:/usr/share/elasticsearch/config/certs
+      - esdata01:/usr/share/elasticsearch/data
+    ports:
+      - ${ES_PORT}:9200
+    environment:
+      - node.name=es01
+      - cluster.name=${CLUSTER_NAME}
+      - cluster.initial_master_nodes=es01,es02,es03
+      - discovery.seed_hosts=es02,es03
+      - node.roles=master,data,ingest
+      # ... SSL + auth config identique pour chaque nœud
+
+  es02:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+    volumes:
+      - certs:/usr/share/elasticsearch/config/certs
+      - esdata02:/usr/share/elasticsearch/data
+    ports:
+      - 9201:9200
+    environment:
+      - node.name=es02
+      - cluster.initial_master_nodes=es01,es02,es03
+      - discovery.seed_hosts=es01,es03
+      - node.roles=master,data,ingest
+
+  es03:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+    volumes:
+      - certs:/usr/share/elasticsearch/config/certs
+      - esdata03:/usr/share/elasticsearch/data
+    ports:
+      - 9202:9200
+    environment:
+      - node.name=es03
+      - cluster.initial_master_nodes=es01,es02,es03
+      - discovery.seed_hosts=es01,es02
+      - node.roles=master,data,ingest
+```
+
+#### Intégration de l'API et de Kibana
+
+```yaml
+  kibana:
+    depends_on:
+      es01: { condition: service_healthy }
+      es02: { condition: service_healthy }
+      es03: { condition: service_healthy }
+    environment:
+      - ELASTICSEARCH_HOSTS=["https://es01:9200","https://es02:9200","https://es03:9200"]
+
   email-indexer:
     build: ./email-indexer
     environment:
@@ -264,13 +332,28 @@ Intégrez l'application à votre stack existante (votre fichier `docker-compose.
     ports:
       - "8080:8080"
     depends_on:
-      es01:
-        condition: service_healthy
+      es01: { condition: service_healthy }
+      es02: { condition: service_healthy }
+      es03: { condition: service_healthy }
 ```
 
 > [!IMPORTANT]
-> - `depends_on` avec `service_healthy` garantit que l'API ne démarre que quand Elasticsearch est complètement prêt et sécurisé.
-> - Le volume mappé `../data:/data:ro` permet au DataSeeder de trouver le fichier `emails_dataset.json` local.
+> - Le cluster nécessite **3 × `MEM_LIMIT`** de RAM. Ajustez `MEM_LIMIT` dans `.env` (par défaut 1 Go par nœud).
+> - `depends_on` avec `service_healthy` garantit que **les 3 nœuds** sont prêts avant de démarrer Kibana et l'API.
+> - Le `setup` génère automatiquement les certificats TLS pour `es01`, `es02` et `es03`.
+
+#### Vérification du Cluster
+
+```bash
+# Vérifier la santé du cluster (doit retourner "green" avec 3 nœuds)
+curl -s -k -u elastic:${ELASTIC_PASSWORD} https://localhost:9200/_cluster/health | jq
+
+# Lister les nœuds du cluster
+curl -s -k -u elastic:${ELASTIC_PASSWORD} https://localhost:9200/_cat/nodes?v
+
+# Vérifier la répartition des shards
+curl -s -k -u elastic:${ELASTIC_PASSWORD} https://localhost:9200/_cat/shards/emails?v
+```
 
 ---
 
